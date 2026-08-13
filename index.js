@@ -38,45 +38,51 @@ app.get('/check', async (req, res) => {
 
     // 1. トップページへアクセス
     console.log("トップページを開いています...");
-    await page.goto('https://www.jr.cyberstation.ne.jp/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto('https://www.jr.cyberstation.ne.jp/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 2. 空席照会画面へ遷移するためのリンク/ボタンを探してクリック
+    // 2. 検索画面を探す
     console.log("検索画面を探しています...");
-    const selectors = ['select[name="month"]', 'input[name="dep_stn"]'];
-    
-    // 画面内にすでにフォームがあるかチェック
-    let hasForm = await page.$(selectors[0]);
+    let targetPage = page;
+
+    // フォームが画面上（またはフレーム内）にあるかチェック
+    const formSelector = 'select[name="month"]';
+    let hasForm = await page.$(formSelector);
 
     if (!hasForm) {
-      // フォームがない場合は「空席照会」等のボタンをクリック
-      const button = await page.$('a[href*="vacant"], input[type="submit"], button');
-      if (button) {
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
-          button.click()
-        ]);
-      }
+      // フォームがない場合、空席照会ボタン/リンクをクリック（確実にJavaScriptで実行）
+      const buttonSelector = 'a[href*="vacant"], input[type="submit"], button, form button';
+      await page.waitForSelector(buttonSelector, { visible: true, timeout: 30000 });
+
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {}),
+        page.evaluate((sel) => {
+          const btn = document.querySelector(sel);
+          if (btn) btn.click();
+        }, buttonSelector)
+      ]);
     }
 
-    // 3. フォームが読み込まれるのを待機（フレーム内も探索）
-    let targetPage = page;
+    // 3. フレームの切り替え確認
     const frames = page.frames();
     for (const frame of frames) {
-      if (await frame.$('select[name="month"]')) {
-        targetPage = frame;
-        break;
-      }
+      try {
+        if (await frame.$(formSelector)) {
+          targetPage = frame;
+          break;
+        }
+      } catch (e) {}
     }
 
-    await targetPage.waitForSelector('select[name="month"]', { timeout: 30000 });
+    // 4. フォーム要素の表示待機
+    await targetPage.waitForSelector('select[name="month"]', { visible: true, timeout: 30000 });
 
-    // 4. 条件入力
+    // 5. 条件入力
     console.log("条件を入力中...");
     await targetPage.select('select[name="month"]', '08');
     await targetPage.select('select[name="day"]', '16');
     await targetPage.select('select[name="hour"]', '14');
     await targetPage.select('select[name="minute"]', '50');
-    
+
     if (await targetPage.$('select[name="line"]')) {
       await targetPage.select('select[name="line"]', 'TOHOKU');
     }
@@ -84,12 +90,14 @@ app.get('/check', async (req, res) => {
     await targetPage.type('input[name="dep_stn"]', '新白河');
     await targetPage.type('input[name="arr_stn"]', '東京');
 
-    // 5. 検索実行
+    // 6. 検索実行（JS経由で確実送信）
     console.log("検索を実行中...");
-    const submitBtn = await targetPage.$('input[type="submit"], button[type="submit"]');
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-      submitBtn.click()
+      targetPage.evaluate(() => {
+        const submit = document.querySelector('input[type="submit"], button[type="submit"]');
+        if (submit) submit.click();
+      })
     ]);
 
     const pageContent = await page.content();
