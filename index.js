@@ -1,7 +1,6 @@
 const express = require('express');
-const puppeteer = require('puppeteer-core');
-const chromium = require('@sparticuz/chromium');
 const axios = require('axios');
+const querystring = require('querystring');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -16,68 +15,31 @@ const TARGET_DATE = "2026年8月16日";
 app.get('/check', async (req, res) => {
   console.log(`[${new Date().toISOString()}] 外部からの要請により空席確認を開始します...`);
 
-  let vacancySymbol = '×';
-
   try {
-    const browser = await puppeteer.launch({
-      args: [
-        ...chromium.args,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-      ],
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+    // JRサイバーステーションへ送る検索フォームデータ
+    const formData = querystring.stringify({
+      month: '08',
+      day: '16',
+      hour: '14',
+      minute: '50',
+      line: 'TOHOKU',
+      train_type: '0',
+      dep_stn: '新白河',
+      arr_stn: '東京'
     });
 
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-
-    // 1. JRサイバーステーションのトップ画面へアクセス
-    await page.goto('https://www.jr.cyberstation.ne.jp/index.html', { 
-      waitUntil: 'networkidle2', 
-      timeout: 60000 
+    // 直接POSTリクエストを送信
+    const response = await axios.post('https://www.jr.cyberstation.ne.jp/c_vacant.html', formData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Referer': 'https://www.jr.cyberstation.ne.jp/c_vacant.html'
+      },
+      timeout: 10000
     });
 
-    // 2. 検索フォームが含まれるフレーム（またはページ本文）を特定
-    let targetFrame = page;
-    const frames = page.frames();
-    for (const frame of frames) {
-      if (frame.url().includes('c_vacant') || (await frame.$('select[name="month"]'))) {
-        targetFrame = frame;
-        break;
-      }
-    }
-
-    // もし直接移動が必要な場合のフォールバックアクセス
-    if (targetFrame === page && !(await page.$('select[name="month"]'))) {
-      await page.goto('https://www.jr.cyberstation.ne.jp/c_vacant.html', { waitUntil: 'networkidle2', timeout: 60000 });
-      targetFrame = page;
-    }
-
-    // 3. フォーム要素の待機
-    await targetFrame.waitForSelector('select[name="month"]', { timeout: 30000 });
-
-    // 4. 検索条件を入力
-    await targetFrame.select('select[name="month"]', '08');
-    await targetFrame.select('select[name="day"]', '16');
-    await targetFrame.select('select[name="hour"]', '14');
-    await targetFrame.select('select[name="minute"]', '50');
-    await targetFrame.select('select[name="line"]', 'TOHOKU');
-    await targetFrame.type('input[name="dep_stn"]', '新白河');
-    await targetFrame.type('input[name="arr_stn"]', '東京');
-
-    // 5. 検索実行
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-      targetFrame.click('input[type="submit"]')
-    ]);
-
-    const pageContent = await page.content();
-    vacancySymbol = parseVacancySymbol(pageContent, TARGET_TRAIN_NUMBER);
-
-    await browser.close();
+    const html = response.data;
+    const vacancySymbol = parseVacancySymbol(html, TARGET_TRAIN_NUMBER);
 
     console.log(`判定結果: ${TARGET_TRAIN_NAME} 指定席ステータス = [ ${vacancySymbol} ]`);
 
