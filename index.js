@@ -1,9 +1,10 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 const LINE_USER_ID = process.env.LINE_USER_ID;
@@ -12,16 +13,18 @@ const TARGET_TRAIN_NUMBER = "214";
 const TARGET_TRAIN_NAME = "やまびこ214号";
 const TARGET_DATE = "2026年8月16日";
 
-// cron-job.org からアクセスされた時に実行される処理
 app.get('/check', async (req, res) => {
   console.log(`[${new Date().toISOString()}] 外部からの要請により空席確認を開始します...`);
 
   let vacancySymbol = '×';
 
   try {
+    // Sparticuz Chromium を使用して立ち上げ
     const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--lang=ja-JP,ja']
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
