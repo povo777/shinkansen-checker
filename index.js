@@ -16,7 +16,6 @@ app.get('/check', async (req, res) => {
   console.log(`[${new Date().toISOString()}] 外部からの要請により空席確認を開始します...`);
 
   try {
-    // JRサイバーステーションへ送る検索フォームデータ
     const formData = querystring.stringify({
       month: '08',
       day: '16',
@@ -28,7 +27,6 @@ app.get('/check', async (req, res) => {
       arr_stn: '東京'
     });
 
-    // 直接POSTリクエストを送信
     const response = await axios.post('https://www.jr.cyberstation.ne.jp/c_vacant.html', formData, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
