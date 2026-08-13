@@ -16,24 +16,27 @@ app.get('/check', async (req, res) => {
   console.log(`[${new Date().toISOString()}] 外部からの要請により空席確認を開始します...`);
 
   try {
+    // JRサイバーステーションの最新フォーム仕様に合わせたPOSTデータ
     const formData = querystring.stringify({
-      month: '08',
-      day: '16',
-      hour: '14',
-      minute: '50',
-      line: 'TOHOKU',
-      train_type: '0',
-      dep_stn: '新白河',
-      arr_stn: '東京'
+      'month': '08',
+      'day': '16',
+      'hour': '14',
+      'minute': '50',
+      'train_type': '5', // 新幹線
+      'line': 'TOHOKU', // 東北新幹線
+      'dep_stn': '新白河',
+      'arr_stn': '東京',
+      'submit_btn': '検索'
     });
 
     const response = await axios.post('https://www.jr.cyberstation.ne.jp/c_vacant.html', formData, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Origin': 'https://www.jr.cyberstation.ne.jp',
         'Referer': 'https://www.jr.cyberstation.ne.jp/c_vacant.html'
       },
-      timeout: 10000
+      timeout: 15000
     });
 
     const html = response.data;
