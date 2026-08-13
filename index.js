@@ -19,7 +19,6 @@ app.get('/check', async (req, res) => {
   let vacancySymbol = '×';
 
   try {
-    // 軽量Chromiumを使用してブラウザを起動
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
@@ -31,6 +30,9 @@ app.get('/check', async (req, res) => {
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     await page.goto('https://www.jr.cyberstation.ne.jp/c_vacant.html', { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // 【修正ポイント】フォーム要素が表示されるまで最大30秒待機する
+    await page.waitForSelector('select[name="month"]', { visible: true, timeout: 30000 });
 
     await page.select('select[name="month"]', '08');
     await page.select('select[name="day"]', '16');
