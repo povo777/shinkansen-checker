@@ -19,7 +19,7 @@ app.get('/check', async (req, res) => {
   let vacancySymbol = '×';
 
   try {
-    // Sparticuz Chromium を使用して立ち上げ
+    // 軽量Chromiumを使用してブラウザを起動
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
