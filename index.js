@@ -20,31 +20,58 @@ app.get('/check', async (req, res) => {
 
   try {
     const browser = await puppeteer.launch({
-      args: chromium.args,
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
     });
 
     const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
-    await page.goto('https://www.jr.cyberstation.ne.jp/c_vacant.html', { waitUntil: 'networkidle2', timeout: 60000 });
+    // 1. JRサイバーステーションのトップ画面へアクセス
+    await page.goto('https://www.jr.cyberstation.ne.jp/index.html', { 
+      waitUntil: 'networkidle2', 
+      timeout: 60000 
+    });
 
-    // 【修正ポイント】フォーム要素が表示されるまで最大30秒待機する
-    await page.waitForSelector('select[name="month"]', { visible: true, timeout: 30000 });
+    // 2. 検索フォームが含まれるフレーム（またはページ本文）を特定
+    let targetFrame = page;
+    const frames = page.frames();
+    for (const frame of frames) {
+      if (frame.url().includes('c_vacant') || (await frame.$('select[name="month"]'))) {
+        targetFrame = frame;
+        break;
+      }
+    }
 
-    await page.select('select[name="month"]', '08');
-    await page.select('select[name="day"]', '16');
-    await page.select('select[name="hour"]', '14');
-    await page.select('select[name="minute"]', '50');
-    await page.select('select[name="line"]', 'TOHOKU');
-    await page.type('input[name="dep_stn"]', '新白河');
-    await page.type('input[name="arr_stn"]', '東京');
+    // もし直接移動が必要な場合のフォールバックアクセス
+    if (targetFrame === page && !(await page.$('select[name="month"]'))) {
+      await page.goto('https://www.jr.cyberstation.ne.jp/c_vacant.html', { waitUntil: 'networkidle2', timeout: 60000 });
+      targetFrame = page;
+    }
 
+    // 3. フォーム要素の待機
+    await targetFrame.waitForSelector('select[name="month"]', { timeout: 30000 });
+
+    // 4. 検索条件を入力
+    await targetFrame.select('select[name="month"]', '08');
+    await targetFrame.select('select[name="day"]', '16');
+    await targetFrame.select('select[name="hour"]', '14');
+    await targetFrame.select('select[name="minute"]', '50');
+    await targetFrame.select('select[name="line"]', 'TOHOKU');
+    await targetFrame.type('input[name="dep_stn"]', '新白河');
+    await targetFrame.type('input[name="arr_stn"]', '東京');
+
+    // 5. 検索実行
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-      page.click('input[type="submit"]')
+      targetFrame.click('input[type="submit"]')
     ]);
 
     const pageContent = await page.content();
