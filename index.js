@@ -1,6 +1,7 @@
 const express = require('express');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const axios = require('axios');
-const querystring = require('querystring');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,32 +16,86 @@ const TARGET_DATE = "2026年8月16日";
 app.get('/check', async (req, res) => {
   console.log(`[${new Date().toISOString()}] 外部からの要請により空席確認を開始します...`);
 
+  let vacancySymbol = '×';
+  let browser = null;
+
   try {
-    // JRサイバーステーションの最新フォーム仕様に合わせたPOSTデータ
-    const formData = querystring.stringify({
-      'month': '08',
-      'day': '16',
-      'hour': '14',
-      'minute': '50',
-      'train_type': '5', // 新幹線
-      'line': 'TOHOKU', // 東北新幹線
-      'dep_stn': '新白河',
-      'arr_stn': '東京',
-      'submit_btn': '検索'
+    browser = await puppeteer.launch({
+      args: [
+        ...chromium.args,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process'
+      ],
+      defaultViewport: { width: 1280, height: 800 },
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
-    const response = await axios.post('https://www.jr.cyberstation.ne.jp/c_vacant.html', formData, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Origin': 'https://www.jr.cyberstation.ne.jp',
-        'Referer': 'https://www.jr.cyberstation.ne.jp/c_vacant.html'
-      },
-      timeout: 15000
-    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
-    const html = response.data;
-    const vacancySymbol = parseVacancySymbol(html, TARGET_TRAIN_NUMBER);
+    // 1. トップページへアクセス
+    console.log("トップページを開いています...");
+    await page.goto('https://www.jr.cyberstation.ne.jp/', { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // 2. 空席照会画面へ遷移するためのリンク/ボタンを探してクリック
+    console.log("検索画面を探しています...");
+    const selectors = ['select[name="month"]', 'input[name="dep_stn"]'];
+    
+    // 画面内にすでにフォームがあるかチェック
+    let hasForm = await page.$(selectors[0]);
+
+    if (!hasForm) {
+      // フォームがない場合は「空席照会」等のボタンをクリック
+      const button = await page.$('a[href*="vacant"], input[type="submit"], button');
+      if (button) {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
+          button.click()
+        ]);
+      }
+    }
+
+    // 3. フォームが読み込まれるのを待機（フレーム内も探索）
+    let targetPage = page;
+    const frames = page.frames();
+    for (const frame of frames) {
+      if (await frame.$('select[name="month"]')) {
+        targetPage = frame;
+        break;
+      }
+    }
+
+    await targetPage.waitForSelector('select[name="month"]', { timeout: 30000 });
+
+    // 4. 条件入力
+    console.log("条件を入力中...");
+    await targetPage.select('select[name="month"]', '08');
+    await targetPage.select('select[name="day"]', '16');
+    await targetPage.select('select[name="hour"]', '14');
+    await targetPage.select('select[name="minute"]', '50');
+    
+    if (await targetPage.$('select[name="line"]')) {
+      await targetPage.select('select[name="line"]', 'TOHOKU');
+    }
+
+    await targetPage.type('input[name="dep_stn"]', '新白河');
+    await targetPage.type('input[name="arr_stn"]', '東京');
+
+    // 5. 検索実行
+    console.log("検索を実行中...");
+    const submitBtn = await targetPage.$('input[type="submit"], button[type="submit"]');
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+      submitBtn.click()
+    ]);
+
+    const pageContent = await page.content();
+    vacancySymbol = parseVacancySymbol(pageContent, TARGET_TRAIN_NUMBER);
+
+    await browser.close();
 
     console.log(`判定結果: ${TARGET_TRAIN_NAME} 指定席ステータス = [ ${vacancySymbol} ]`);
 
@@ -53,6 +108,7 @@ app.get('/check', async (req, res) => {
     res.send(`Check completed. Status: ${vacancySymbol}`);
 
   } catch (error) {
+    if (browser) await browser.close();
     console.error("処理中にエラーが発生しました:", error.message);
     res.status(500).send(`Error: ${error.message}`);
   }
